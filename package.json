@@ -1,0 +1,46 @@
+{
+  "name": "simple-rtr",
+  "version": "1.0.0",
+  "description": "Refresh Token Rotation strategy for any platform",
+  "main": "build/cjs/src/index.js",
+  "module": "build/esm/src/index.js",
+  "types": "build/types/index.d.ts",
+  "scripts": {
+    "build": "rollup --config",
+    "test": "jest",
+    "prepublishOnly": "npm run build"
+  },
+  "sideEffects": false,
+  "files": [
+    "build"
+  ],
+  "repository": "https://github.com/lbfalvy/simple-rtr.git",
+  "homepage": "https://github.com/lbfalvy/simple-rtr",
+  "author": "Lawrence Bethlenfalvy <lbfalvy@protonmail.com>",
+  "license": "MIT",
+  "devDependencies": {
+    "@babel/core": "^7.17.5",
+    "@babel/preset-env": "^7.16.11",
+    "@babel/preset-typescript": "^7.16.7",
+    "@types/babel-core": "^6.25.7",
+    "@types/jest": "^27.4.1",
+    "@types/jsonwebtoken": "^8.5.8",
+    "babel-jest": "^27.5.1",
+    "buffered-dispatch": "^1.0.0",
+    "jest": "^27.5.1",
+    "jsonwebtoken": "^8.5.1",
+    "mockable-timer": "^1.0.1",
+    "rollup": "^2.69.0",
+    "rollup-plugin-dts": "^4.2.0",
+    "rollup-plugin-ts": "^2.0.5",
+    "ts-node": "^10.6.0"
+  },
+  "dependencies": {
+    "@lbfalvy/mini-events": "^3.0.0",
+    "jwt-decode": "^3.1.2"
+  },
+  "peerDependencies": {
+    "localstorage-var": "^1.0.0",
+    "mockable-timer": "^1.0.1"
+  }
+}
