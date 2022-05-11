@@ -1,6 +1,6 @@
 {
   "name": "simple-rtr",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Refresh Token Rotation strategy for any platform",
   "main": "build/cjs/src/index.js",
   "module": "build/esm/src/index.js",
