@@ -18,14 +18,14 @@ const rtr = rtrAgent({
 	renewOnTtl: 60, // Renew a minute before expiry
 	lockExpiry: 5, // Wait 5 seconds on network error
 	storage: localStorageVar('auth-data'),
-	time: time
+	time: time,
 	refresh: async refresh => { // Example implementation
 		const data = await fetch('/api/refresh', {
 			method: 'POST',
 			body: refresh
 		})
-		if (response.ok) return await response.json()
-		if (response.status == 401) return 'invalid'
+		if (data.ok) return await data.json()
+		if (data.status == 401) return 'invalid'
 		throw new Error(`HTTP error ${response.status}`)
 	}
 })
