@@ -35,8 +35,8 @@ const rtr = rtrAgent({
 given the above code, you can manage sessions like so
 
 ```ts
-rtr.setPair(myTokens) // Log in
-rtr.setPair(undefined) // Log out
+await rtr.setPair(myTokens) // Log in
+await rtr.setPair(undefined) // Log out
 rtr.session.changed(tokenVar => {
 	if (tokenVar) {
 		// Logged in
