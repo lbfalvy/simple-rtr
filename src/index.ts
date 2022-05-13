@@ -1,4 +1,4 @@
-import { Emit, variable, Variable } from "@lbfalvy/mini-events"
+import { variable, AsyncVariable, Variable, AsyncEmit, Lock } from "@lbfalvy/mini-events"
 import jwtDecode from "jwt-decode"
 import { Time } from "mockable-timer"
 
@@ -33,7 +33,7 @@ export interface RtrConfig {
      * of `variable` from `@lbfalvy/mini-events`. Don't put a variable in it though, instead, connect the
      * appropriate functions to localStorage or some other shared state
      */
-    storage: [Emit<[State|undefined]>, Variable<State|undefined>]
+    storage: [AsyncEmit<[State|undefined]>, AsyncVariable<State|undefined>, Lock<State|undefined>]
     /**
      * Time API
      */
@@ -57,7 +57,7 @@ export interface RtrAgent {
      * Call this on login, user switching and logout
      * @param pair Initial token pair
      */
-    setPair(pair?: TokenPair | undefined): void
+    setPair(pair?: TokenPair | undefined): Promise<void>
     /**
      * Refresh the token pair for external reasons.
      */
@@ -105,7 +105,7 @@ export class AssertionError extends Error {
  */
 export function rtrAgent(opts: RtrConfig): RtrAgent {
     const { refresh, storage, renewOnTtl, lockExpiry, log, time } = opts
-    const [ write, { get, changed } ] = storage
+    const [ write, { get, changed }, lock] = storage
     let loop = false
     // Prevent thundering herd
     const uniqueDelay = Math.floor(Math.random() * 1000) / 1000
@@ -128,11 +128,12 @@ export function rtrAgent(opts: RtrConfig): RtrAgent {
         await Promise.resolve()
         try {
             while (loop) {
-                const state = get()
-                log?.('Current state at', time.now(), ':', state)
+                const [release, state] = await lock()
+                log?.('Current state:', state)
                 // Initial, logged-out state
                 if (!state) {
                     log?.('State empty, waiting for login...')
+                    release()
                     await new Promise<any>(r => changed(r, true, true))
                     continue
                 }
@@ -141,7 +142,8 @@ export function rtrAgent(opts: RtrConfig): RtrAgent {
                 // Session expired > transition to logged-out
                 if (exp(refreshToken) - time.now() < 0) {
                     log?.('Session expired, clearing state...')
-                    write(undefined)
+                    await write(undefined)
+                    release()
                     continue
                 }
                 const auth = decodeToken(state.pair.auth)
@@ -149,27 +151,41 @@ export function rtrAgent(opts: RtrConfig): RtrAgent {
                 // Pending request > wait for timeout, then transition if it didn't already
                 // can transition to stale token or expired session
                 if (state.lockedAt) {
-                    const expiry = lockExpiry
-                    const unlockIn = time.now() - state.lockedAt + expiry
-                    log?.(`Waiting ${unlockIn + uniqueDelay} for pending request to expire...`)
+                    if (time.now() < state.lockedAt) {
+                        // logged for exact event ordering
+                        log?.('Time travel detected, terminating')
+                        await write(undefined)
+                        release()
+                        throw new Error('Time travel detected, terminating')
+                    }
+                    const unlockIn = time.now() - state.lockedAt + lockExpiry
                     if (0 < unlockIn) {
+                        log?.(`Waiting ${unlockIn + uniqueDelay} for pending request to expire...`)
+                        release()
                         await new Promise<void>(res => time.wait(unlockIn + uniqueDelay, res))
-                        const newState = get()
+                        const [release2, newState] = await lock()
                         if (newState?.lockedAt === state.lockedAt) {
                             log?.('Pending request expired, clearing timeout...')
-                            write({ pair: state.pair })
+                            await write({ pair: state.pair })
                         }
+                        release2()
                         continue
                     }
                 }
                 // stale token > transition to pending request
                 // then try refreshing the token
                 // then transition to fresh token state if it didn't already
-                const renewIn = (exp(auth) - renewOnTtl - time.now()) * 1000
+                const renewIn = (exp(auth) - renewOnTtl - time.now())
                 if (renewIn < 0) {
                     const lockedAt = time.now()
+                    if (state?.lockedAt) {
+                        release()
+                        continue
+                    }
                     log?.(`Stale access token, locking for renewal at ${lockedAt}...`)
-                    write({ ...state, lockedAt })
+                    await write({ ...state, lockedAt })
+                    log?.('Value after write:', await get())
+                    release()
                     try {
                         const result = await refresh(state.pair.refresh)
                         log?.('Refresh returned', result)
@@ -180,14 +196,17 @@ export function rtrAgent(opts: RtrConfig): RtrAgent {
                                 'the string literal "invalid" or throws in the case of a network error.'
                             )
                         }
-                        const newState = get()
                         if (result == 'invalid') {
                             log?.('Invalid refresh token, clearing state')
-                            write(undefined)
+                            const [release] = await lock()
+                            await write(undefined)
+                            release()
                             continue
                         }
+                        const [release, newState] = await lock()
                         if (newState?.lockedAt !== lockedAt) {
-                            write(undefined)
+                            await write(undefined)
+                            release()
                             throw new AssertionError(
                                 'Lock broken.\n' +
                                 'This implies that something other than the RTR library ' +
@@ -196,7 +215,8 @@ export function rtrAgent(opts: RtrConfig): RtrAgent {
                             )
                         }
                         log?.('Saving new pair and unlocking...')
-                        write({ pair: result })
+                        await write({ pair: result })
+                        release()
                     } catch(ex) {
                         if (ex instanceof AssertionError) throw ex
                         log?.('Encountered error', ex)
@@ -207,6 +227,7 @@ export function rtrAgent(opts: RtrConfig): RtrAgent {
                 // valid token > wait until renewal due
                 // transition to stale token
                 log?.(`Waiting ${renewIn + uniqueDelay} for access token to go stale...`)
+                release()
                 await new Promise<void>(res => time.wait(renewIn + uniqueDelay, res))
             }
         } catch(e) {
@@ -215,9 +236,9 @@ export function rtrAgent(opts: RtrConfig): RtrAgent {
         }
     }
     mainloop()
-    function createSession(): Variable<string> {
+    async function createSession(): Promise<Variable<string>> {
         log?.('Constructing new session')
-        const state = get()
+        const state = await get()
         if (!state) throw new Error('No active token')
         const [set, v] = variable<string>(state.pair.auth)
         const dispose = changed((fresh, old) => {
@@ -229,33 +250,39 @@ export function rtrAgent(opts: RtrConfig): RtrAgent {
         return v
     }
     const [setSession, session] = variable<Variable<string>>()
-    const dispose = changed((fresh, old) => {
+    const dispose = changed(async (fresh, old) => {
         log?.('storage event old:', old, 'fresh:', fresh)
-        if (!old) setSession(createSession())
+        if (!old) setSession(await createSession())
         if (!fresh) setSession(undefined)
     })
-    if (get()) setSession(createSession())
+    createSession()
+        .then(tok => setSession(tok))
+        .catch(() => {}) // TODO: only catch "No active token"
     const actions: RtrAgent = {
-        setPair(pair) {
+        async setPair(pair) {
+            const [release] = await lock()
             if (pair) {
-                write({ pair })
+                await write({ pair })
                 if (!loop) mainloop()
-            } else { write(undefined) }
+            } else { await write(undefined) }
+            release()
         },
         async forceRefresh() {
-            const state = get()
+            const [release, state] = await lock()
             if (!state) throw new Error('use setPair')
             const lockedAt = time.now()
-            write({ ...state, lockedAt })
+            await write({ ...state, lockedAt })
             const result = await refresh(state.pair.refresh)
             if (result == 'invalid') {
                 log?.('Invalid refresh token, clearing state')
-                write(undefined)
+                await write(undefined)
+                release()
                 return
             }
-            const newState = get()
+            const newState = await get()
             if (newState?.lockedAt !== lockedAt) throw new AssertionError('Lock broken')
-            write({ pair: result })
+            await write({ pair: result })
+            release()
         },
         uniqueDelay,
         session

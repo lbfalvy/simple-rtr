@@ -11,13 +11,14 @@ Simply call the function like so
 
 ```ts
 import { localStorageVar } from 'localstorage-var'
+import { toAsync } from '@lbfalvy/mini-events'
 import { rtrAgent } from 'simple-rtr'
 import { time } from "mockable-timer";
 
 const rtr = rtrAgent({
 	renewOnTtl: 60, // Renew a minute before expiry
 	lockExpiry: 5, // Wait 5 seconds on network error
-	storage: localStorageVar('auth-data'),
+	storage: toAsync(localStorageVar('auth-data'), undefined),
 	time: time,
 	refresh: async refresh => { // Example implementation
 		const data = await fetch('/api/refresh', {
@@ -36,11 +37,11 @@ given the above code, you can manage sessions like so
 ```ts
 rtr.setPair(myTokens) // Log in
 rtr.setPair(undefined) // Log out
-rtr.token.changed(session => {
-	if (session) {
+rtr.session.changed(tokenVar => {
+	if (tokenVar) {
 		// Logged in
-		const token = session.get() // Obtain a fresh access token
-		session.changed(token => {
+		const token = tokenVar.get() // Obtain a fresh access token
+		tokenVar.changed(token => {
 			// access token refreshed
 		})
 	} else {
