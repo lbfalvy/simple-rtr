@@ -33,7 +33,7 @@ export interface RtrConfig {
      * of `variable` from `@lbfalvy/mini-events`. Don't put a variable in it though, instead, connect the
      * appropriate functions to localStorage or some other shared state
      */
-    storage: [AsyncEmit<[State|undefined]>, AsyncVariable<State|undefined>, Lock<State|undefined>]
+    storage: readonly [AsyncEmit<[State|undefined]>, AsyncVariable<State|undefined>, Lock<State|undefined>]
     /**
      * Time API
      */
